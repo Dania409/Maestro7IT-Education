@@ -1,6 +1,6 @@
 # This is a basic workflow to help you get started with Actions
 
-name: CI
+name: "Ruby on Rails CI"
 
 # Controls when the workflow will run
 on:
@@ -15,6 +15,75 @@ on:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
+  lint:
+     runs-on: ubuntu-latest
+     steps:
+        -name: Checkout code
+         uses: actions/checkout@v3
+        -name: Install Ruby and gems
+         uses: ruby/setup-ruby@ee2113536afb7f793eed4ce60e8d3b26db912da4 # v1.127
+         with:
+            bundler-cache: true
+      - name: Lint Ruby files
+        run: bundle exec rubocop
+
+  test:
+     needs: lint 
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        ports:
+          - "5432:5432"
+          env:
+            POSTGRES_DB : rails_test
+            POSTGRES_USER: rails
+            POSTGRES_PASSWORD: password
+          env:
+            POSTGRES_DB: rails_test
+            POSTGRES_USER: rails
+            POSTGRES_PASSWORD: password
+            RAILS_ENV: test
+            DATABASE_URL: "postgres://rails:password@localhost:5432/rails_test"
+          steps: 
+            -name: Checkout code
+             uses: actions/checkout@v3
+            -name: Install Ruby and gems
+             uses: ruby/setup-ruby@ee2113536afb7f793eed4ce60e8d3b26db912da4 # v1.127
+             with:
+          bundler-cache: true
+      - name: Set up database schema
+        run: bin/rails db:schema:load
+      - name: Run tests
+        run: |
+          bundle exec rake db:drop db:create db:migrate db:seed;
+          bin/rake test;
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Install Ruby and gems
+        uses: ruby/setup-ruby@ee2113536afb7f793eed4ce60e8d3b26db912da4 # v1.127.0
+        with:
+          bundler-cache: true
+      - name: Run command on remote server
+        uses: D3rHase/ssh-command-action@v0.2.2
+        with:
+          host: ${{secrets.SSH_HOST}}
+          user: ${{secrets.SSH_USER}}
+          private_key: ${{secrets.SSH_PRIVATE_KEY}}
+          command: |
+            cd ${{ secrets.PROJECT_FOLDER }};
+            git checkout main;
+            git pull;
+            docker-compose --file docker-compose.prod.yml down;
+            docker-compose --file docker-compose.prod.yml up -d;
+            docker system prune --all --force;
+             
   # This workflow contains a single job called "build"
   build:
     # The type of runner that the job will run on
